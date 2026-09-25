@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Oak & Form secure checkout" />
+  <title>Checkout | Oak & Form</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/checkout.css" />
+</head>
+<body class="checkout-body">
+  <header class="checkout-topbar"><a class="logo" href="/" aria-label="Oak and Form home"><span>OAK</span><em>&</em><span>FORM</span></a><span class="checkout-lock">⌑ Secure checkout</span><a class="back-link" href="/">← Continue shopping</a></header>
+  <main class="checkout-page">
+    <div class="checkout-layout">
+      <form class="checkout-form" id="checkout-form" novalidate>
+        <p class="kicker">Almost home</p>
+        <h1>Complete your<br><i>order.</i></h1>
+        <div class="checkout-section"><div class="checkout-section-title"><span>01</span><h2>Contact</h2></div><div class="field"><label for="checkout-email">Email address</label><input id="checkout-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required><small class="field-error" data-error-for="email"></small></div></div>
+        <div class="checkout-section"><div class="checkout-section-title"><span>02</span><h2>Delivery address</h2></div><div class="field"><label for="checkout-name">Full name</label><input id="checkout-name" name="name" autocomplete="name" required></div><div class="field"><label for="checkout-address">Street address</label><input id="checkout-address" name="address" autocomplete="street-address" required></div><div class="checkout-fields"><div class="field"><label for="checkout-city">City</label><input id="checkout-city" name="city" required></div><div class="field"><label for="checkout-state">State</label><input id="checkout-state" name="state" required></div><div class="field"><label for="checkout-zip">ZIP code</label><input id="checkout-zip" name="zip" inputmode="numeric" required></div></div><div class="field"><label for="checkout-phone">Phone number</label><input id="checkout-phone" name="phone" type="tel" autocomplete="tel" required></div></div>
+        <div class="checkout-section"><div class="checkout-section-title"><span>03</span><h2>Payment</h2></div><div class="field"><label for="checkout-card">Card number</label><input id="checkout-card" name="card" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" required><small class="field-hint">Use 4242 4242 4242 4242 for this demo.</small></div><div class="checkout-fields payment-fields"><div class="field"><label for="checkout-expiry">Expiry</label><input id="checkout-expiry" name="expiry" autocomplete="cc-exp" placeholder="MM / YY" required></div><div class="field"><label for="checkout-cvv">CVC</label><input id="checkout-cvv" name="cvv" inputmode="numeric" autocomplete="cc-csc" placeholder="123" required></div></div><p class="payment-note">Your payment details are verified securely and never stored.</p></div>
+        <button class="button button-dark full" type="submit">Place order <span>↗</span></button>
+        <p id="checkout-message" class="form-message" aria-live="polite"></p>
+      </form>
+      <aside class="order-summary"><div class="summary-heading"><div><p class="kicker">Your selection</p><h2>Order summary</h2></div><a href="/" class="edit-cart">Edit cart</a></div><div id="checkout-items"></div><div class="summary-lines"><div><span>Subtotal</span><strong id="checkout-subtotal">$0</strong></div><div><span>Delivery</span><strong>Complimentary</strong></div><div class="summary-total"><span>Total</span><strong id="checkout-total">$0</strong></div></div><p class="delivery-note">White-glove delivery to your room of choice. Complimentary delivery applies to orders over $500.</p></aside>
+    </div>
+  </main>
+  <div class="checkout-toast" id="checkout-toast" role="status"></div>
+  <script src="/checkout.js"></script>
+</body>
+</html>

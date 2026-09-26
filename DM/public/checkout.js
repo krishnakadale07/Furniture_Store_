@@ -1,3 +1,6 @@
+import { inject } from '@vercel/analytics';
+
+inject();
 const cart = JSON.parse(localStorage.getItem('oak-form-cart') || '[]');
 const token = localStorage.getItem('oak-form-token');
 const money = value => `$${value.toLocaleString('en-US')}`;

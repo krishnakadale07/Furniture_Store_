@@ -45,6 +45,6 @@
   <aside class="drawer auth-drawer" aria-label="Account"><div class="drawer-header"><h2 id="auth-title">Welcome back</h2><button class="close-button" data-close>×</button></div><div class="auth-tabs"><button class="auth-tab active" data-auth-mode="login">Sign in</button><button class="auth-tab" data-auth-mode="register">Create account</button></div><form id="auth-form"><div class="field register-only"><label for="auth-name">Name</label><input id="auth-name" name="name" placeholder="Your name"></div><div class="field"><label for="auth-email">Email</label><input id="auth-email" name="email" type="email" placeholder="you@example.com" required></div><div class="field"><label for="auth-password">Password</label><input id="auth-password" name="password" type="password" placeholder="At least 6 characters" required minlength="6"></div><button class="button button-dark full" id="auth-submit">Sign in <span>↗</span></button><p id="auth-message" class="form-message" aria-live="polite"></p></form></aside>
   <aside class="drawer profile-drawer" aria-label="Profile"><div class="drawer-header"><h2>My profile</h2><button class="close-button" data-close>×</button></div><div id="profile-content"></div><button class="button profile-signout" data-signout>Sign out</button></aside>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -261,6 +261,7 @@ app.post('/api/newsletter', (req, res) => {
   res.status(201).json({ message: 'You are on the list. Welcome to the good stuff.' });
 });
 
+app.use('/api', (req, res) => res.status(404).json({ message: 'API endpoint not found.' }));
 app.use((req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 if (!process.env.VERCEL) {
   app.listen(PORT, () => console.log(`Oak & Form is running at http://localhost:${PORT}`));

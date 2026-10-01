@@ -45,9 +45,13 @@ $('#auth-form').addEventListener('submit', async event => {
   message.textContent = '';
   try {
     const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(form))) });
-    const data = await response.json().catch(() => ({}));
+    const responseBody = await response.text();
+    let data = {};
+    try {
+      data = responseBody ? JSON.parse(responseBody) : {};
+    } catch {}
     if (!response.ok) {
-      message.textContent = data.message || 'The account request could not be completed. Please try again.';
+      message.textContent = data.message || `Account request failed (HTTP ${response.status}). Check the deployment API route and DATABASE_URL.`;
       return;
     }
     if (!data.token || !data.user?.name) throw new Error('The account service returned an invalid response.');

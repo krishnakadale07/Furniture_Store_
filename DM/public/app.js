@@ -18,7 +18,7 @@ function removeFromCart(id) { state.cart = state.cart.filter(item => item.id !==
 function openDrawer(selector) { $('.overlay').classList.add('open'); $(selector).classList.add('open'); }
 function closeDrawers() { $('.overlay').classList.remove('open'); document.querySelectorAll('.drawer').forEach(drawer => drawer.classList.remove('open')); }
 function showToast(message) { $('#toast').textContent = message; $('#toast').classList.add('show'); setTimeout(() => $('#toast').classList.remove('show'), 2500); }
-function setAuthMode(mode) { state.authMode = mode; const drawer = $('.auth-drawer'); drawer.classList.toggle('register', mode === 'register'); $('#auth-title').textContent = mode === 'register' ? 'Make a home here' : 'Welcome back'; $('#auth-submit').innerHTML = `${mode === 'register' ? 'Create account' : 'Sign in'} <span>↗</span>`; document.querySelectorAll('.auth-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.authMode === mode)); $('#auth-message').textContent = ''; }
+function setAuthMode(mode) { state.authMode = mode; const drawer = $('.auth-drawer'); drawer.classList.toggle('register', mode === 'register'); $('#auth-title').textContent = mode === 'register' ? 'Make a home here' : 'Welcome back'; $('#auth-submit').innerHTML = `${mode === 'register' ? 'Create account' : 'Sign in'} <span>↗</span>`; $('#auth-name').required = mode === 'register'; document.querySelectorAll('.auth-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.authMode === mode)); $('#auth-message').textContent = ''; }
 function renderSearchResults(query = '') { const normalizedQuery = query.trim().toLowerCase(); const results = normalizedQuery ? state.products.filter(product => `${product.name} ${product.category} ${product.description}`.toLowerCase().includes(normalizedQuery)) : []; $('#search-results').innerHTML = results.length ? results.map(product => `<button class="search-result" data-search-add="${product.id}"><img src="${product.image}" alt="${product.name}"><span><strong>${product.name}</strong><small>${product.category} · ${money(product.price)}</small></span><b>+</b></button>`).join('') : `<p class="empty-cart">${normalizedQuery ? 'No pieces found. Try another search.' : 'Start typing to search the collection.'}</p>`; document.querySelectorAll('[data-search-add]').forEach(button => button.addEventListener('click', () => { addToCart(button.dataset.searchAdd); closeDrawers(); })); }
 async function openProfile() { if (!state.token) { openDrawer('.auth-drawer'); $('#auth-message').textContent = 'Sign in to view your profile.'; return; } const [userResponse, ordersResponse] = await Promise.all([fetch('/api/me', { headers: { Authorization: `Bearer ${state.token}` } }), fetch('/api/orders', { headers: { Authorization: `Bearer ${state.token}` } })]); if (!userResponse.ok) { state.token = ''; localStorage.removeItem('oak-form-token'); openDrawer('.auth-drawer'); return; } const user = await userResponse.json(); const orders = await ordersResponse.json(); $('#profile-content').innerHTML = `<div class="profile-identity"><div class="profile-avatar">${user.name.charAt(0).toUpperCase()}</div><div><h3>${user.name}</h3><p>${user.email}</p></div></div><div class="profile-block"><div class="profile-label">Personal information</div><div class="profile-detail"><span>Name</span><strong>${user.name}</strong></div><div class="profile-detail"><span>Email</span><strong>${user.email}</strong></div></div><div class="profile-block"><div class="profile-label">Order history</div>${orders.length ? orders.slice().reverse().map(order => { const total = order.items.reduce((sum, item) => { const product = state.products.find(entry => entry.id === item.id); return sum + (product ? product.price * item.quantity : 0); }, 0); return `<div class="order-row"><div><strong>${order.id}</strong><span>${new Date(order.createdAt).toLocaleDateString()} · ${order.status}</span></div><b>${money(total)}</b></div>`; }).join('') : '<p class="empty-cart">Your orders will appear here.</p>'}</div>`; openDrawer('.profile-drawer'); }
 function applyLanguage(language) { state.language = language; localStorage.setItem('oak-form-language', language); document.documentElement.lang = language; const copy = translations[language] || translations.en; document.querySelectorAll('[data-i18n]').forEach(element => { element.textContent = copy[element.dataset.i18n] || element.textContent; }); document.querySelectorAll('[data-i18n-placeholder]').forEach(element => { element.placeholder = copy[element.dataset.i18nPlaceholder] || element.placeholder; }); }
@@ -35,7 +35,33 @@ document.querySelectorAll('[data-auth-mode]').forEach(tab => tab.addEventListene
 $('[data-signout]').addEventListener('click', () => { state.token = ''; localStorage.removeItem('oak-form-token'); closeDrawers(); showToast('You have been signed out'); });
 $('#language-select').value = state.language;
 $('#language-select').addEventListener('change', event => { applyLanguage(event.target.value); showToast(`Language: ${event.target.options[event.target.selectedIndex].text}`); });
-$('#auth-form').addEventListener('submit', async event => { event.preventDefault(); const form = new FormData(event.target); const endpoint = state.authMode === 'register' ? '/api/auth/register' : '/api/auth/login'; const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(form)) }); const data = await response.json(); if (!response.ok) { $('#auth-message').textContent = data.message; return; } state.token = data.token; localStorage.setItem('oak-form-token', data.token); closeDrawers(); showToast(`Welcome, ${data.user.name.split(' ')[0]}`); event.target.reset(); });
+$('#auth-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submit = $('#auth-submit');
+  const message = $('#auth-message');
+  const endpoint = state.authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+  submit.disabled = true;
+  message.textContent = '';
+  try {
+    const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      message.textContent = data.message || 'The account request could not be completed. Please try again.';
+      return;
+    }
+    if (!data.token || !data.user?.name) throw new Error('The account service returned an invalid response.');
+    state.token = data.token;
+    localStorage.setItem('oak-form-token', data.token);
+    closeDrawers();
+    showToast(`Welcome, ${data.user.name.split(' ')[0]}`);
+    form.reset();
+  } catch (error) {
+    message.textContent = error instanceof TypeError ? 'Unable to reach the account service. Please try again.' : error.message;
+  } finally {
+    submit.disabled = false;
+  }
+});
 $('#newsletter-form').addEventListener('submit', async event => { event.preventDefault(); const email = $('#newsletter-email').value; const response = await fetch('/api/newsletter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }); const data = await response.json(); $('#newsletter-message').textContent = data.message; if (response.ok) event.target.reset(); });
 $('[data-checkout]').addEventListener('click', () => { if (!state.cart.length) return showToast('Your cart is empty'); if (!state.token) { closeDrawers(); openDrawer('.auth-drawer'); $('#auth-message').textContent = 'Sign in to continue to checkout.'; return; } window.location.href = '/checkout'; });
 applyLanguage(state.language);

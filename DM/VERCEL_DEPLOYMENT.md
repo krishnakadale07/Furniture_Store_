@@ -1,9 +1,9 @@
-# Vercel account storage
+# Vercel deployment
 
-Account records and sign-in sessions are stored in Neon Postgres when `DATABASE_URL` is configured. The required tables are created automatically on the first account request.
+## Optional accounts
 
-1. Create a Neon Postgres database, either through the Neon integration in the Vercel Marketplace or at neon.tech.
-2. In Vercel, open the project settings and add the database connection string as the `DATABASE_URL` environment variable. Enable it for each deployment environment you use.
-3. Redeploy the project so the function receives the new environment variable.
+Browsing and guest checkout work without an account. To enable real account creation and sign-in, create a Neon Postgres database and set its connection string as `DATABASE_URL` in Vercel for the deployment environment. The account tables are created automatically. Redeploy after setting the variable. Do not commit the connection string.
 
-Do not commit the connection string. Without `DATABASE_URL`, Vercel returns a clear service error for account requests. Local development without the variable uses temporary in-memory accounts; set `DATABASE_URL` locally when you want to test persistence.
+## Search Console
+
+Set `PUBLIC_SITE_URL` in Vercel to the canonical production origin, for example `https://www.example.com`, then redeploy. After deployment, verify that `/robots.txt` points to the production sitemap and that `/sitemap.xml` contains the production homepage URL. Submit `https://www.example.com/sitemap.xml` in Google Search Console and request indexing for the homepage. Replace the example host with the site's actual domain.

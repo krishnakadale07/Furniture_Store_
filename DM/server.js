@@ -104,6 +104,28 @@ for (const [category, catalog] of Object.entries(productCatalog)) {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/checkout', (req, res) => res.sendFile(path.join(__dirname, 'public', 'checkout.html')));
+function publicSiteUrl(req) {
+  const configuredUrl = process.env.PUBLIC_SITE_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`);
+  if (configuredUrl) return new URL(configuredUrl).origin;
+  const protocol = req.get('x-forwarded-proto')?.split(',')[0] || req.protocol;
+  return new URL(`${protocol}://${req.get('host')}`).origin;
+}
+const collectionPages = [
+  { slug: 'seating', category: 'Seating', title: 'Modern Sofas & Chairs | Oak & Form', heading: 'Sofas and chairs for everyday living', description: 'Explore modern sofas, lounge chairs and dining chairs at Oak & Form, selected for lasting comfort, thoughtful materials and relaxed living.', intro: 'Find a comfortable seat for every part of the day, from deep sofas and sculptural lounge chairs to dining chairs made for long conversations.' },
+  { slug: 'tables', category: 'Tables', title: 'Coffee & Dining Tables | Oak & Form', heading: 'Tables that bring a room together', description: 'Shop coffee, dining, side and console tables at Oak & Form, with considered proportions and practical surfaces for daily life.', intro: 'Make room for slow mornings, shared meals and everything in between with coffee, dining, side and console tables.' },
+  { slug: 'bedroom', category: 'Bedroom', title: 'Bedroom Furniture & Bedding | Oak & Form', heading: 'A more restful bedroom', description: 'Discover bedroom furniture and soft furnishings at Oak & Form, including beds, bedside pieces and restful essentials for winding down.', intro: 'Create a quieter place to land with upholstered beds, bedside furniture and soft bedroom pieces chosen for comfort.' },
+  { slug: 'storage', category: 'Storage', title: 'Modern Storage Furniture | Oak & Form', heading: 'Storage with a place in your home', description: 'Browse bookcases, cabinets, media consoles and shelves at Oak & Form for useful storage with clean, considered design.', intro: 'Give everyday objects a home with bookcases, cabinets, media consoles and shelves that keep rooms feeling considered.' },
+  { slug: 'lighting', category: 'Lighting', title: 'Pendant, Floor & Table Lighting | Oak & Form', heading: 'Lighting for softer evenings', description: 'Shop pendant, floor and table lighting at Oak & Form, with warm light and sculptural forms for reading, dining and relaxing.', intro: 'Layer a room with warm light, from a focused reading lamp to a pendant that makes the whole table feel inviting.' }
+];
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /checkout\nSitemap: ${publicSiteUrl(req)}/sitemap.xml\n`);
+});
+app.get('/sitemap.xml', (req, res) => {
+  const siteUrl = publicSiteUrl(req);
+  const paths = ['/', ...collectionPages.map(collection => `/collections/${collection.slug}`)];
+  const urls = paths.map(pathname => `<url><loc>${siteUrl}${pathname}</loc></url>`).join('');
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`);
+});
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   const hash = crypto.scryptSync(password, salt, 64).toString('hex');
@@ -148,6 +170,7 @@ async function userFromRequest(req) {
   const [user] = await sql`SELECT users.name, users.email FROM oak_sessions AS sessions JOIN oak_users AS users ON users.email = sessions.email WHERE sessions.token = ${token} AND sessions.expires_at > NOW() LIMIT 1`;
   return user || null;
 }
+
 function validCardNumber(card) {
   const digits = String(card || '').replace(/\D/g, '');
   if (digits.length < 12 || digits.length > 19) return false;
@@ -169,12 +192,25 @@ app.get('/api/products', (req, res) => {
   res.json(result);
 });
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+}
+app.get('/collections/:slug', (req, res) => {
+  const collection = collectionPages.find(page => page.slug === req.params.slug);
+  if (!collection) return res.status(404).send('Collection not found.');
+  const canonicalUrl = `${publicSiteUrl(req)}/collections/${collection.slug}`;
+  const collectionProducts = products.filter(product => product.category === collection.category);
+  const productMarkup = collectionProducts.map(product => `<article class="collection-product"><img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy"><div><h2>${escapeHtml(product.name)}</h2><p>${escapeHtml(product.description)}</p><strong>$${product.price.toLocaleString('en-US')}</strong></div></article>`).join('');
+  const collectionLinks = collectionPages.map(page => `<a href="/collections/${page.slug}">${escapeHtml(page.category)}</a>`).join('');
+  res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="${escapeHtml(collection.description)}"><link rel="canonical" href="${canonicalUrl}"><title>${escapeHtml(collection.title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/collections.css"></head><body><header class="collection-header"><a class="logo" href="/" aria-label="Oak and Form home"><span>OAK</span><em>&amp;</em><span>FORM</span></a><a href="/#shop">Shop all furniture</a></header><main class="collection-main"><p class="kicker">Oak &amp; Form collection</p><h1>${escapeHtml(collection.heading)}</h1><p class="collection-intro">${escapeHtml(collection.intro)}</p><div class="collection-grid">${productMarkup}</div><nav class="collection-nav" aria-label="Furniture collections"><h2>Explore more collections</h2>${collectionLinks}</nav></main></body></html>`);
+});
+
 app.post('/api/auth/register', async (req, res) => {
   if (authStorageUnavailable(res)) return;
   const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
-  if (!name || !email || password.length < 6) return res.status(400).json({ message: 'Please provide a name, email, and password of at least 6 characters.' });
+  if (!name || !email || password.length < 6) return res.status(400).json({ message: 'Enter your name, a valid email, and a password of at least 6 characters.' });
   try {
     const passwordHash = hashPassword(password);
     let user;
@@ -226,32 +262,13 @@ app.get('/api/me', async (req, res) => {
   }
 });
 
-app.get('/api/orders', async (req, res) => {
-  if (authStorageUnavailable(res)) return;
-  try {
-    const user = await userFromRequest(req);
-    if (!user) return res.status(401).json({ message: 'Not signed in.' });
-    res.json(orders.filter(order => order.user === user.email).map(order => ({ ...order, shipping: { city: order.shipping.city, state: order.shipping.state, zip: order.shipping.zip } })));
-  } catch {
-    res.status(503).json({ message: 'Account service is temporarily unavailable. Please try again.' });
-  }
-});
-
-app.post('/api/orders', async (req, res) => {
-  if (authStorageUnavailable(res)) return;
-  let user;
-  try {
-    user = await userFromRequest(req);
-  } catch {
-    return res.status(503).json({ message: 'Account service is temporarily unavailable. Please try again.' });
-  }
-  if (!user) return res.status(401).json({ message: 'Sign in before placing an order.' });
+app.post('/api/orders', (req, res) => {
   const { items, shipping } = req.body;
-  if (!Array.isArray(items) || !items.length || !shipping?.address || !shipping?.name || !shipping?.city || !shipping?.state || !shipping?.zip || !shipping?.phone) return res.status(400).json({ message: 'Complete your contact and delivery details before placing the order.' });
+  if (!Array.isArray(items) || !items.length || !shipping?.email || !shipping?.address || !shipping?.name || !shipping?.city || !shipping?.state || !shipping?.zip || !shipping?.phone) return res.status(400).json({ message: 'Complete your contact and delivery details before placing the order.' });
   if (!validCardNumber(shipping.card)) return res.status(400).json({ message: 'Enter a valid card number to continue.' });
   if (!/^\d{3,4}$/.test(String(shipping.cvv || '')) || !/^\d{2}\s*\/\s*\d{2}$/.test(String(shipping.expiry || ''))) return res.status(400).json({ message: 'Check your card expiry and security code.' });
   const { card, cvv, expiry, ...safeShipping } = shipping;
-  const order = { id: `OF-${Date.now().toString().slice(-6)}`, user: user.email, items, shipping: safeShipping, createdAt: new Date().toISOString(), status: 'Confirmed' };
+  const order = { id: `OF-${Date.now().toString().slice(-6)}`, items, shipping: safeShipping, createdAt: new Date().toISOString(), status: 'Confirmed' };
   orders.push(order);
   res.status(201).json(order);
 });

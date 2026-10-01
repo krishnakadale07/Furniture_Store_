@@ -2,13 +2,16 @@ import express from 'express';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { neon } from '@neondatabase/serverless';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
+const sql = process.env.DATABASE_URL ? neon(process.env.DATABASE_URL) : null;
 const users = new Map();
 const sessions = new Map();
 const orders = [];
+let authSchemaReady;
 
 const products = [
   { id: 'arc-lounge', name: 'Arc Lounge Chair', category: 'Seating', price: 289, oldPrice: 340, badge: 'Bestseller', description: 'A low, sculptural lounge chair with a generous seat and boucle-like texture.', image: 'https://images.unsplash.com/photo-1598300042247-d088f8ab3a91?auto=format&fit=crop&w=1000&q=85', colors: ['#d9cfc2', '#33423c', '#ae7b55'] },
@@ -111,9 +114,39 @@ function verifyPassword(password, stored) {
   const derived = crypto.scryptSync(password, salt, 64).toString('hex');
   return crypto.timingSafeEqual(Buffer.from(key, 'hex'), Buffer.from(derived, 'hex'));
 }
-function userFromRequest(req) {
+async function ensureAuthSchema() {
+  if (!sql) return;
+  authSchemaReady ??= (async () => {
+    await sql`CREATE TABLE IF NOT EXISTS oak_users (email TEXT PRIMARY KEY, name TEXT NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+    await sql`CREATE TABLE IF NOT EXISTS oak_sessions (token TEXT PRIMARY KEY, email TEXT NOT NULL REFERENCES oak_users(email) ON DELETE CASCADE, expires_at TIMESTAMPTZ NOT NULL)`;
+  })().catch(error => {
+    authSchemaReady = undefined;
+    throw error;
+  });
+  await authSchemaReady;
+}
+function authStorageUnavailable(res) {
+  if (!process.env.VERCEL || sql) return false;
+  res.status(503).json({ message: 'Account storage is not configured. Set DATABASE_URL in Vercel.' });
+  return true;
+}
+async function createSession(user) {
+  const token = crypto.randomUUID();
+  if (sql) {
+    await ensureAuthSchema();
+    await sql`INSERT INTO oak_sessions (token, email, expires_at) VALUES (${token}, ${user.email}, NOW() + INTERVAL '30 days')`;
+  } else {
+    sessions.set(token, { name: user.name, email: user.email });
+  }
+  return token;
+}
+async function userFromRequest(req) {
   const token = req.headers.authorization?.replace('Bearer ', '');
-  return token ? sessions.get(token) : null;
+  if (!token) return null;
+  if (!sql) return sessions.get(token) || null;
+  await ensureAuthSchema();
+  const [user] = await sql`SELECT users.name, users.email FROM oak_sessions AS sessions JOIN oak_users AS users ON users.email = sessions.email WHERE sessions.token = ${token} AND sessions.expires_at > NOW() LIMIT 1`;
+  return user || null;
 }
 function validCardNumber(card) {
   const digits = String(card || '').replace(/\D/g, '');
@@ -136,41 +169,82 @@ app.get('/api/products', (req, res) => {
   res.json(result);
 });
 
-app.post('/api/auth/register', (req, res) => {
-  const { name, email, password } = req.body;
-  if (!name || !email || !password || password.length < 6) return res.status(400).json({ message: 'Please provide a name, email, and password of at least 6 characters.' });
-  const normalizedEmail = email.trim().toLowerCase();
-  if (users.has(normalizedEmail)) return res.status(409).json({ message: 'An account with that email already exists.' });
-  const user = { name: name.trim(), email: normalizedEmail, password: hashPassword(password) };
-  users.set(normalizedEmail, user);
-  const token = crypto.randomUUID();
-  sessions.set(token, { name: user.name, email: user.email });
-  res.status(201).json({ token, user: { name: user.name, email: user.email } });
+app.post('/api/auth/register', async (req, res) => {
+  if (authStorageUnavailable(res)) return;
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!name || !email || password.length < 6) return res.status(400).json({ message: 'Please provide a name, email, and password of at least 6 characters.' });
+  try {
+    const passwordHash = hashPassword(password);
+    let user;
+    if (sql) {
+      await ensureAuthSchema();
+      [user] = await sql`INSERT INTO oak_users (email, name, password_hash) VALUES (${email}, ${name}, ${passwordHash}) ON CONFLICT (email) DO NOTHING RETURNING name, email`;
+      if (!user) return res.status(409).json({ message: 'An account with that email already exists.' });
+    } else {
+      if (users.has(email)) return res.status(409).json({ message: 'An account with that email already exists.' });
+      user = { name, email, password: passwordHash };
+      users.set(email, user);
+    }
+    const token = await createSession(user);
+    res.status(201).json({ token, user: { name: user.name, email: user.email } });
+  } catch {
+    res.status(503).json({ message: 'Account service is temporarily unavailable. Please try again.' });
+  }
 });
 
-app.post('/api/auth/login', (req, res) => {
-  const { email, password } = req.body;
-  const user = users.get(email?.trim().toLowerCase());
-  if (!user || !verifyPassword(password || '', user.password)) return res.status(401).json({ message: 'Email or password is incorrect.' });
-  const token = crypto.randomUUID();
-  sessions.set(token, { name: user.name, email: user.email });
-  res.json({ token, user: { name: user.name, email: user.email } });
+app.post('/api/auth/login', async (req, res) => {
+  if (authStorageUnavailable(res)) return;
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  try {
+    let user;
+    if (sql) {
+      await ensureAuthSchema();
+      [user] = await sql`SELECT name, email, password_hash FROM oak_users WHERE email = ${email} LIMIT 1`;
+      if (user) user.password = user.password_hash;
+    } else {
+      user = users.get(email);
+    }
+    if (!user || !verifyPassword(password, user.password)) return res.status(401).json({ message: 'Email or password is incorrect.' });
+    const token = await createSession(user);
+    res.json({ token, user: { name: user.name, email: user.email } });
+  } catch {
+    res.status(503).json({ message: 'Account service is temporarily unavailable. Please try again.' });
+  }
 });
 
-app.get('/api/me', (req, res) => {
-  const user = userFromRequest(req);
-  if (!user) return res.status(401).json({ message: 'Not signed in.' });
-  res.json(user);
+app.get('/api/me', async (req, res) => {
+  if (authStorageUnavailable(res)) return;
+  try {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ message: 'Not signed in.' });
+    res.json(user);
+  } catch {
+    res.status(503).json({ message: 'Account service is temporarily unavailable. Please try again.' });
+  }
 });
 
-app.get('/api/orders', (req, res) => {
-  const user = userFromRequest(req);
-  if (!user) return res.status(401).json({ message: 'Not signed in.' });
-  res.json(orders.filter(order => order.user === user.email).map(order => ({ ...order, shipping: { city: order.shipping.city, state: order.shipping.state, zip: order.shipping.zip } })));
+app.get('/api/orders', async (req, res) => {
+  if (authStorageUnavailable(res)) return;
+  try {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ message: 'Not signed in.' });
+    res.json(orders.filter(order => order.user === user.email).map(order => ({ ...order, shipping: { city: order.shipping.city, state: order.shipping.state, zip: order.shipping.zip } })));
+  } catch {
+    res.status(503).json({ message: 'Account service is temporarily unavailable. Please try again.' });
+  }
 });
 
-app.post('/api/orders', (req, res) => {
-  const user = userFromRequest(req);
+app.post('/api/orders', async (req, res) => {
+  if (authStorageUnavailable(res)) return;
+  let user;
+  try {
+    user = await userFromRequest(req);
+  } catch {
+    return res.status(503).json({ message: 'Account service is temporarily unavailable. Please try again.' });
+  }
   if (!user) return res.status(401).json({ message: 'Sign in before placing an order.' });
   const { items, shipping } = req.body;
   if (!Array.isArray(items) || !items.length || !shipping?.address || !shipping?.name || !shipping?.city || !shipping?.state || !shipping?.zip || !shipping?.phone) return res.status(400).json({ message: 'Complete your contact and delivery details before placing the order.' });
